@@ -218,7 +218,7 @@ def local_extract(img, model):
     data = {
         'locations':to_numpy(output_locations),
         'descriptors':to_numpy(output_features),
-        'scores':to_numpy(output_scores)
+        # 'scores':to_numpy(output_scores)
         # 'attention':to_numpy(output_original_scale_attn)
         }
     return data
