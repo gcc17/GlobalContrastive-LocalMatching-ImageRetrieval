@@ -1,9 +1,6 @@
 # DELG-pytorch
 Pytorch Implementation of Unifying Deep Local and Global Features for Image Search ([delg-eccv20](https://arxiv.org/pdf/2001.05027.pdf))
 
-- DELG pipline:
-<p align="center"><img width="90%" src="tools/vis/delg_pipline.png" /></p>
-
 ## Installation
 
 Install Python dependencies:
@@ -48,53 +45,32 @@ python train_delg.py \
 pretrained weeights are available in [pymetric](https://github.com/feymanpriv/pymetric)
 
 
-## Feature extraction
+## Evaluation on Revisited Oxford & Paris
 
-#### !!! Queries should be cropped as [DOLG](https://github.com/feymanpriv/DOLG/blob/main/evaler/infer.py#L83).
-Extracting global and local feature for multi-scales
-```
-python tools/extractor.py --cfg configs/resnet_delg_8gpu.yaml
-```
-Refer [`extractor.sh`](tools/extract.sh) for using multicards
+1. Install [**pydegensac**](https://github.com/ducha-aiki/pydegensac)
 
-See [`visualize.ipynb`](tools/vis/attention/visualize.ipynb) for verification of local features
+2. Extract global and local features with `extract_features.py`
 
-## Evaluation on ROxf and RPar
+3. Perform image retrieval with `perform_retrieval.py`
 
-### Local Match
-
-- Spatial Verification
-
-    Install [**pydegensac**](https://github.com/ducha-aiki/pydegensac) and see **tools/rerank/spatial_verification.py**
-
-- Examples
-<p align="center"><img width="90%" src="tools/vis/matches/match_example_1.jpg" /></p>
-
-- ASMK
-    
-    (https://github.com/jenicek/asmk)
-
-### Results 
-
-See (https://github.com/filipradenovic/revisitop) for details
 
 ```
-cd tools/revisitop
-python example_evaluate_with_local.py main
-```
-
+Using r50-delg pretrained model
 - on roxford5k
+1. With global features
+    mAP E: 90.73, M: 77.3, H: 57.44
+    mP@k[ 1  5 10] E: [95.59 92.35 91.07], M: [95.71 92.86 88.29], H: [90.   81.71 70.71]
 
-|  Backbone | Train Size | Method | mAP E | mAP M | mAP H |
-|--------------|:-------:|:------:|:-------:|:------------:|:-------------:|
-|  ResNet50  |    224  |  Global Ranking                | 77.73 | **66.06** | 38.37 |
-|  ResNet50  |    224  |  Global                        | 81.03 | **68.31** | 39.98 |
-|  ResNet50  |    224  |  Global + Spatial Verification | 84.81 | **71.97** | 46.63 |
-|  ResNet50  |    512  |  Global                        | 90.55 | **78.51** | 56.90 |
-|  ResNet50  |    512  |  Global + Spatial Verification | 90.86 | **80.08** | 58.42 |
+2. With global and local features
+    mAP E: 94.22, M: 78.18, H: 57.05
+    mP@k[ 1  5 10] E: [100.    94.93  90.51], M: [98.57 96.38 93.24], H: [97.14 82.95 74.67]
+
 
 - on rparis6k(updating)
+1. With global features
+    mAP E: 95.1, M: 88.12, H: 75.1
+    mP@k[ 1  5 10] E: [95.71 97.14 95.79], M: [97.14 97.71 97.29], H: [95.71 92.86 92.43]
 
-1. SOTA of R50-DELG is 78.3 mAP@M in the paper, we outperform it
-2. All training set version is GLDv2-clean (81313, 1580470)
-3. Traing size, global and local feature scales adopted are same with the paper
+2. With global and local features
+    mAP E: 96.03, M: 88.13, H: 74.13
+    mP@k[ 1  5 10] E: [100.    97.43  96.36], M: [100.    99.14  98.29], H: [97.14 93.14 92.86]
