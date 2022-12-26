@@ -1,0 +1,8 @@
+gldv2_dataset/train
+gldv2_dataset/valid
+gldv2_dataset/test
+gldv2_dataset/index
+__pycache__
+*.pyth
+datasets/data/landmark
+output/
