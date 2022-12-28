@@ -1,4 +1,5 @@
 import os
+
 import io
 import numpy as np
 from tools.util import ReadDatasetFile
@@ -16,7 +17,7 @@ import pickle
 import pydegensac
 import copy
 from concurrent import futures
-
+from loftr_tools.match_single_pair import match_single_pair
 import gc
 
 from absl import app
@@ -36,12 +37,12 @@ _IMAGE_EXTENSION = '.jpg'
 
 FLAGS = flags.FLAGS
 
-dataset_name = 'paris6k'
+dataset_name = 'oxford5k'
 flags.DEFINE_string(
-    'dataset_file_path', f'/home/chen/cv_proj/retrieval_data/gnd_r{dataset_name}.mat',
+    'dataset_file_path', f'/home/mockbuild/Computer_Vision/retrieval_data/gnd_r{dataset_name}.mat',
     'Dataset file for Revisited Oxford or Paris dataset, in .mat format.')
 flags.DEFINE_string(
-    'images_dir', f'/home/chen/cv_proj/retrieval_data/{dataset_name}_images',
+    'images_dir', f'/home/mockbuild/Computer_Vision/{dataset_name}',
     'Directory where dataset images are located, all in .jpg format.')
 flags.DEFINE_string(
     'query_global_path', f'output/features/{dataset_name}/query_global.npy',
@@ -58,8 +59,17 @@ flags.DEFINE_string(
 flags.DEFINE_string(
     'match_vis_directory', f'output/matches/{dataset_name}',
     'Directory to visualize the local matching')
+flags.DEFINE_boolean(
+    'use_loftr', True,
+    'whether use loftr model or not')
 
-
+## The flags below are valid only when use_loftr is True.
+flags.DEFINE_string(
+    'loftr_weights_path', f'loftr_tools/weights/outdoor_ds.ckpt',
+    'weights of the loftr model')
+flags.DEFINE_enum(
+    'loftr_rerank_method', 'NumofFeature', ['NumofFeature', 'RANSAC'], 
+    'Use the number of features or RANSAC to rerank')
 def global_search():
     """ rank by global descriptors """ 
     with open(FLAGS.query_global_path, 'rb') as f:
@@ -68,8 +78,46 @@ def global_search():
         index_global_features = np.load(f)
     sim = np.dot(index_global_features, query_global_features.T)
     ranks = np.argsort(-sim, axis=0)
+    #set_trace()
     #np.save("ranks_before_gv.npy", ranks)
     return ranks
+
+def rerankGV_mulprocess_loftr(query_list, index_list, ground_truth, ranks_before_gv):
+    print('>> mulprocess reranking ...')
+    ranks_after_gv = ranks_before_gv
+    with open(FLAGS.query_local_path, "rb") as f:
+        query_local_features = pickle.load(f)
+    with open(FLAGS.index_local_path, "rb") as f:
+        index_local_features = pickle.load(f)
+    
+    query_index_localfeatures = []
+    for query_idx, query_image_name in enumerate(query_list):
+        feat_dict = {}
+        feat_dict[query_image_name] = query_local_features[query_image_name]
+        for k in range(NUM_RERANK):
+            index_rank = ranks_before_gv[k, query_idx]
+            index_image_name = index_list[index_rank]
+            feat_dict[index_image_name] = index_local_features[index_image_name]
+        query_index_localfeatures.append((query_idx, feat_dict))
+    del query_local_features
+    del index_local_features
+    gc.collect()
+    
+    ## mulprocess
+    with futures.ProcessPoolExecutor(max_workers=2) as executor:
+        executor_dict = {executor.submit(localRank_loftr, \
+            tuple_local_features, query_list, index_list, ground_truth, ranks_before_gv): \
+            tuple_local_features for tuple_local_features in query_index_localfeatures}
+
+    for future in futures.as_completed(executor_dict):
+        query_idx, inliers_numrerank = future.result()
+        ranks_after_gv[:NUM_RERANK, query_idx] = ranks_before_gv[np.argsort(-1 * inliers_numrerank), query_idx] #-1
+    ## single process
+    # for tuple_local_features in query_index_localfeatures:
+    #     query_idx, inliers_numrerank = localRank_loftr(tuple_local_features, query_list, index_list, ground_truth, ranks_before_gv)
+    #     ranks_after_gv[:NUM_RERANK, query_idx] = ranks_before_gv[np.argsort(-1 * inliers_numrerank), query_idx]
+    set_trace()
+    return ranks_after_gv
 
 
 def rerankGV_mulprocess(query_list, index_list, ground_truth, ranks_before_gv):
@@ -93,18 +141,49 @@ def rerankGV_mulprocess(query_list, index_list, ground_truth, ranks_before_gv):
     del query_local_features
     del index_local_features
     gc.collect()
-    
-    with futures.ProcessPoolExecutor(max_workers=24) as executor:
-        executor_dict = {executor.submit(localRank, \
-            tuple_local_features, query_list, index_list, ground_truth, ranks_before_gv): \
-            tuple_local_features for tuple_local_features in query_index_localfeatures}
+    ## mulprocess
+    # with futures.ProcessPoolExecutor(max_workers=24) as executor:
+    #     executor_dict = {executor.submit(localRank, \
+    #         tuple_local_features, query_list, index_list, ground_truth, ranks_before_gv): \
+    #         tuple_local_features for tuple_local_features in query_index_localfeatures}
 
-    for future in futures.as_completed(executor_dict):
-        query_idx, inliers_numrerank = future.result()
+    # for future in futures.as_completed(executor_dict):
+    #     query_idx, inliers_numrerank = future.result()
+    #     ranks_after_gv[:NUM_RERANK, query_idx] = ranks_before_gv[np.argsort(-1 * inliers_numrerank), query_idx] #-1
+    ## single process
+    for tuple_local_features in query_index_localfeatures:
+        query_idx, inliers_numrerank = localRank(tuple_local_features, query_list, index_list, ground_truth, ranks_before_gv)
         ranks_after_gv[:NUM_RERANK, query_idx] = ranks_before_gv[np.argsort(-1 * inliers_numrerank), query_idx]
-
+    #set_trace()
     return ranks_after_gv
 
+def localRank_loftr(tuple_local_features, query_list, index_list, ground_truth, ranks_before_gv):
+    query_idx, part_local_features = tuple_local_features
+    query_image_name = query_list[query_idx]
+    print(">> Rerank {} {}".format(query_idx, query_image_name))
+    query_im_array = cv2.imread(os.path.join(FLAGS.images_dir, query_image_name + _IMAGE_EXTENSION), cv2.IMREAD_GRAYSCALE)
+    query_descriptors = part_local_features[query_image_name]["descriptors"]
+    numrerank = np.zeros(NUM_RERANK)
+    loftr_weight = torch.load(FLAGS.loftr_weights_path)['state_dict']
+    for k in range(NUM_RERANK):
+        if ranks_before_gv[k, query_idx] in ground_truth[query_idx]['junk']:
+            #set_trace()
+            continue
+        index_image_name = index_list[ranks_before_gv[k, query_idx]]
+        index_im_array = cv2.imread(os.path.join(FLAGS.images_dir, index_image_name + _IMAGE_EXTENSION), cv2.IMREAD_GRAYSCALE)
+        index_descriptors = part_local_features[index_image_name]["descriptors"]
+        
+        query_im_feature_pos,index_im_feature_pos,_ = match_single_pair(query_im_array, index_im_array, loftr_weight)
+        if FLAGS.loftr_rerank_method == 'NumofFeature':
+            ## use the number of feature points to rerank
+            numrerank[k] = index_im_feature_pos.shape[0]
+        else:
+            ## use RANSAC to rerank
+            num_inliers,_ = compute_num_inliers(query_im_feature_pos, query_descriptors, 
+            index_im_feature_pos, index_descriptors)
+            numrerank[k] = num_inliers
+        #set_trace()
+    return query_idx, numrerank
 
 def localRank(tuple_local_features, query_list, index_list, ground_truth, ranks_before_gv):
     query_idx, part_local_features = tuple_local_features
@@ -123,7 +202,7 @@ def localRank(tuple_local_features, query_list, index_list, ground_truth, ranks_
         index_im_array = skio.imread(os.path.join(FLAGS.images_dir, index_image_name + _IMAGE_EXTENSION))
         index_locations = part_local_features[index_image_name]["locations"]
         index_descriptors = part_local_features[index_image_name]["descriptors"]
-
+        #set_trace()
         try:
             num_inliers, match_vis_bytes = compute_num_inliers(
                 query_locations, query_descriptors, 
@@ -135,6 +214,7 @@ def localRank(tuple_local_features, query_list, index_list, ground_truth, ranks_
                     f'{query_image_name}-{index_image_name}.{_IMAGE_EXTENSION}'), "wb") as f:
                     f.write(match_vis_bytes)
             inliers_numrerank[k] = num_inliers
+            #set_trace()
         except:
             continue
     
@@ -186,6 +266,7 @@ def compute_num_inliers(query_locations, query_descriptors,
         use_ratio_test=False, draw_matches=True,
         query_im_array=None, index_im_array=None):
     """Returns the number of RANSAC inliers."""
+    
     query_matching_locations, index_matching_locations = \
         compute_putative_matching_keypoints(query_locations, query_descriptors, 
             index_locations, index_descriptors, use_ratio_test=use_ratio_test)
@@ -268,13 +349,19 @@ def reportMAP(ground_truth, ranks):
 
 
 def main(argv):
+#   os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+    # torch.cuda.set_device(1)
     ranks_before_gv = global_search()
     query_list, index_list, ground_truth = ReadDatasetFile(
         FLAGS.dataset_file_path)
+    #set_trace()
     print("Before local feature reranking")
     reportMAP(ground_truth, ranks_before_gv)
     print("After local feature reranking")
-    ranks_after_gv = rerankGV_mulprocess(query_list, index_list, ground_truth, ranks_before_gv)
+    if FLAGS.use_loftr == True:
+        ranks_after_gv = rerankGV_mulprocess_loftr(query_list, index_list, ground_truth, ranks_before_gv)
+    else:
+        ranks_after_gv = rerankGV_mulprocess(query_list, index_list, ground_truth, ranks_before_gv)
     reportMAP(ground_truth, ranks_after_gv)
 
 
