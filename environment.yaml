@@ -1,4 +1,4 @@
-name: DELG_ImageRetrieval
+name: ImageRetrieval
 channels:
   - pytorch
   - conda-forge

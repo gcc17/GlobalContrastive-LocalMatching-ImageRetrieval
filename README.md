@@ -1,78 +1,43 @@
-# DELG-pytorch
-Pytorch Implementation of Unifying Deep Local and Global Features for Image Search ([delg-eccv20](https://arxiv.org/pdf/2001.05027.pdf))
+# Course project for Computer Vision
+This is the course project for Computer Vision. We focus on improvement over the two-stage image retrieval. We incorporate supervised contrastive learning for global feature enhancement and dense keypoint matching for local feature verification. 
 
 ## Installation
-
-Install Python dependencies:
-
 ```
-pip install -r requirements.txt
-```
-
-Set PYTHONPATH:
-
-```
-export PYTHONPATH=`pwd`:$PYTHONPATH
+conda env create -f environment.yaml
+conda activate ImageRetrieval
 ```
 
 ## Training
+Our implementation starts with open-sourced model from [DELG-ECCV20](https://arxiv.org/pdf/2001.05027.pdf) and [LoFTR-CVPR21](https://arxiv.org/pdf/2104.00680.pdf). 
 
-Training a delg model:
+### Trained model weights
+1. [DELG models](https://pan.baidu.com/share/init?surl=rbB1ZItdMsyCiU5YrUbkCA), passwd wu46. 
+2. [LoFTR models](https://drive.google.com/drive/folders/1DOcOPZb3-5cWxLqn256AhwUVjBPifhuf)
+3. [Our finetuned models](https://pan.baidu.com/s/13GrjXBDNg1ONEgiyOTmh_A), passwd ksfu. 
 
+### Dataset download
+The model is trained on Google Landmarks Dataset v2 ([GLDv2](https://github.com/cvdfoundation/google-landmark)). The train, index, and test sets are split into 500, 100, and 20 TAR files. The image files and labels can be downloaded using:
 ```
-python train_delg.py \
-    --cfg configs/metric/resnet_delg_8gpu.yaml \
-    OUT_DIR ./output \
-    PORT 12001 \
-    TRAIN.WEIGHTS path/to/pretrainedmodel
-```
-Resume training: 
-
-```
-python train_delg.py \
-    --cfg configs/metric/resnet_delg_8gpu.yaml \
-    OUT_DIR ./output \
-    PORT 12001 \
-    TRAIN.AUTO_RESUME True
+bash download_dataset.sh 500 100 20
 ```
 
-## Weights
-
--[r50-delg](https://pan.baidu.com/s/1rbB1ZItdMsyCiU5YrUbkCA) (wu46)
-
--[r101-delg](https://pan.baidu.com/s/1cahOcy9hx23RqHgBcKp1uQ)  (5pdj) 
-
-pretrained weights are available in [pymetric](https://github.com/feymanpriv/pymetric)
+### Global feature finetuning
+Our global feature finetuning is based on the open-sourced DELG model: 
+1. Put the pretrained DELG model at directory `logs`.
+2. Put the downloaded GLDv2 data at directory `datasets/data/landmark`. 
+3. For direct finetuning, run `train_delg.sh`. For supervised contrastive learning finetuning, run `train_supcon_delg.sh`. 
 
 
-## Evaluation on Revisited Oxford & Paris
+## Image Retrieval
+### Benchmark download
+The [Revisited Oxford & Paris](http://cmp.felk.cvut.cz/revisitop/) is a widely used benchmark for image retrieval. The Oxford subset has 70 queries and 5k index images; the Paris subset has 70 queries and 6k index images. We need the matlab ground truth files and image files, both of which can be found at the project page. 
 
-1. Install [**pydegensac**](https://github.com/ducha-aiki/pydegensac)
+### Retrieval process
 
-2. Extract global and local features with `extract_features.py`
+Image retrieval includes two stages: 
+1. Extract global and local features by running `extract_features.sh`. 
+2. Perform retrieval with global ranking by running `perform_retrieval.sh`. 
 
-3. Perform image retrieval with `perform_retrieval.py`
+To perform local feature extraction with LoFTR, download pretrained model weights and put to the directory `loftr_tools/weights`. 
 
-
-```
-Using r50_delg_s512 pretrained model
-- on roxford5k
-1. With global features
-    mAP E: 90.73, M: 77.3, H: 57.44
-    mP@k[ 1  5 10] E: [95.59 92.35 91.07], M: [95.71 92.86 88.29], H: [90.   81.71 70.71]
-
-2. With global and local features
-    mAP E: 94.22, M: 78.18, H: 57.05
-    mP@k[ 1  5 10] E: [100.    94.93  90.51], M: [98.57 96.38 93.24], H: [97.14 82.95 74.67]
-
-
-- on rparis6k
-1. With global features
-    mAP E: 95.1, M: 88.12, H: 75.1
-    mP@k[ 1  5 10] E: [95.71 97.14 95.79], M: [97.14 97.71 97.29], H: [95.71 92.86 92.43]
-
-2. With global and local features
-    mAP E: 96.03, M: 88.13, H: 74.13
-    mP@k[ 1  5 10] E: [100.    97.43  96.36], M: [100.    99.14  98.29], H: [97.14 93.14 92.86]
-```
-
+We provide a group of [extracted features (passwd tc8j)](https://pan.baidu.com/s/1oNqyvatZ1w3aFiPQicvnZQ) for Oxford5k subset. 
