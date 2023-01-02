@@ -42,7 +42,7 @@ python train_delg.py \
 
 -[r101-delg](https://pan.baidu.com/s/1cahOcy9hx23RqHgBcKp1uQ)  (5pdj) 
 
-pretrained weeights are available in [pymetric](https://github.com/feymanpriv/pymetric)
+pretrained weights are available in [pymetric](https://github.com/feymanpriv/pymetric)
 
 
 ## Evaluation on Revisited Oxford & Paris
@@ -55,7 +55,7 @@ pretrained weeights are available in [pymetric](https://github.com/feymanpriv/py
 
 
 ```
-Using r50-delg pretrained model
+Using r50_delg_s512 pretrained model
 - on roxford5k
 1. With global features
     mAP E: 90.73, M: 77.3, H: 57.44
@@ -66,7 +66,7 @@ Using r50-delg pretrained model
     mP@k[ 1  5 10] E: [100.    94.93  90.51], M: [98.57 96.38 93.24], H: [97.14 82.95 74.67]
 
 
-- on rparis6k(updating)
+- on rparis6k
 1. With global features
     mAP E: 95.1, M: 88.12, H: 75.1
     mP@k[ 1  5 10] E: [95.71 97.14 95.79], M: [97.14 97.71 97.29], H: [95.71 92.86 92.43]
@@ -74,3 +74,5 @@ Using r50-delg pretrained model
 2. With global and local features
     mAP E: 96.03, M: 88.13, H: 74.13
     mP@k[ 1  5 10] E: [100.    97.43  96.36], M: [100.    99.14  98.29], H: [97.14 93.14 92.86]
+```
+

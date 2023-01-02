@@ -20,11 +20,11 @@ import core.logging as logging
 import core.meters as meters
 import core.net as net
 import core.optimizer as optim
-import datasets.loader as loader
+import datasets.supcon_loader as supcon_loader
 import torch
 from core.config import cfg
 
-from model.delg_model import Delg
+from model.supcon_delg_model import Delg
 
 logger = logging.get_logger(__name__)
 
@@ -72,35 +72,60 @@ def setup_model():
         #model.complexity = model.module.complexity
     return model
 
-
-def train_epoch(train_loader, model, loss_fun, optimizer, train_meter, cur_epoch):
+from ipdb import set_trace
+def train_epoch(train_loader, model, con_loss_fun, loss_fun, optimizer, train_meter, cur_epoch):
     """Performs one epoch of training."""
     # Shuffle the data
-    loader.shuffle(train_loader, cur_epoch)
+    # supcon_loader.shuffle(train_loader, cur_epoch)
     # Update the learning rate
     lr = optim.get_epoch_lr(cur_epoch)
     optim.set_lr(optimizer, lr)
     # Enable training mode
     model.train()
-    train_meter.iter_tic()
-    for cur_iter, (inputs, labels) in enumerate(train_loader):
+    # train_meter.iter_tic()
+    for cur_iter, (images1, images2, labels) in enumerate(train_loader):
         # Transfer the data to the current GPU device
-        inputs, labels = inputs.cuda(), labels.cuda(non_blocking=True)
+        batch_size = cfg.TRAIN.BATCH_SIZE
+        images = torch.cat([images1, images2], dim=0)
+        images, labels = images.cuda(), labels.cuda(non_blocking=True)
+        
         # Perform the forward pass
-        _, global_logits, _, local_logits, _ = model(inputs, labels)
-        # Compute the loss
-        desc_loss = loss_fun(global_logits, labels)
-        att_loss = loss_fun(local_logits, labels)
+        global_features, global_logits, local_features, local_logits, att_scores = model(images, labels)
+        
         # Perform the backward pass
         optimizer.zero_grad()
-        # Freeze globalmodel
+
+        # Compute the contrastive loss
+        f1, f2 = torch.split(global_features, [batch_size, batch_size], dim=0)
+        features = torch.cat([f1.unsqueeze(1), f2.unsqueeze(1)], dim=1)
+        con_loss = con_loss_fun(features, labels)
+        print(con_loss)
+        # set_trace()
+
+        # Compute the classification loss
+        # Update global logits and local logits
+        gl1, gl2 = torch.split(global_logits, [batch_size, batch_size], dim=0)
+        global_logits = (gl1 + gl2) / 2
+        ll1, ll2 = torch.split(local_logits, [batch_size, batch_size], dim=0)
+        local_logits = (ll1 + ll2) / 2
+        desc_loss = loss_fun(global_logits, labels)
+        att_loss = loss_fun(local_logits, labels)
+        
+        # Freeze localmodel before
+        net.freeze_weights(model, freeze=['localmodel', 'att_cls'])
+        total_global_loss = con_loss * cfg.TRAIN.CON_WEIGHT + desc_loss
+        total_global_loss.backward()
+
+        # Freeze globalmodel and unfreeze localmodel
         net.freeze_weights(model, freeze=['globalmodel', 'desc_cls']) 
+        net.unfreeze_weights(model, freeze=['localmodel', 'att_cls'])
         att_loss.backward()
-        # Unfreeze globalmodel
-        net.unfreeze_weights(model, freeze=['globalmodel', 'desc_cls']) 
-        desc_loss.backward()
+
+        net.unfreeze_weights(model, freeze=['globalmodel', 'desc_cls'])
+
         # update params
         optimizer.step()
+
         # Compute the errors
         desc_top1_err, desc_top5_err = meters.topk_errors(global_logits, labels, [1, 5])
         desc_loss, desc_top1_err, desc_top5_err = dist.scaled_all_reduce([desc_loss, desc_top1_err, desc_top5_err])
@@ -112,7 +137,7 @@ def train_epoch(train_loader, model, loss_fun, optimizer, train_meter, cur_epoch
         
         train_meter.iter_toc()
         # Update and log stats
-        mb_size = inputs.size(0) * cfg.NUM_GPUS
+        mb_size = labels.size(0) * cfg.NUM_GPUS
         train_meter.update_stats(desc_top1_err, desc_top5_err, att_top1_err, att_top5_err, desc_loss, att_loss, lr, mb_size)
         train_meter.log_iter_stats(cur_epoch, cur_iter)
         train_meter.iter_tic()
@@ -121,31 +146,6 @@ def train_epoch(train_loader, model, loss_fun, optimizer, train_meter, cur_epoch
     train_meter.reset()
 
 
-@torch.no_grad()
-def test_epoch(test_loader, model, test_meter, cur_epoch):
-    """Evaluates the model on the test set."""
-    # Enable eval mode
-    model.eval()
-    test_meter.iter_tic()
-    for cur_iter, (inputs, labels) in enumerate(test_loader):
-        # Transfer the data to the current GPU device
-        inputs, labels = inputs.cuda(), labels.cuda(non_blocking=True)
-        # Compute the predictions
-        _, global_logits, _, local_logits, _ = model(inputs, labels)
-        # Compute the errors
-        top1_err, top5_err = meters.topk_errors(global_logits, labels, [1, 5])
-        # Combine the errors across the GPUs  (no reduction if 1 GPU used)
-        top1_err, top5_err = dist.scaled_all_reduce([top1_err, top5_err])
-        # Copy the errors from GPU to CPU (sync point)
-        top1_err, top5_err = top1_err.item(), top5_err.item()
-        test_meter.iter_toc()
-        # Update and log stats
-        test_meter.update_stats(top1_err, top5_err, inputs.size(0) * cfg.NUM_GPUS)
-        test_meter.log_iter_stats(cur_epoch, cur_iter)
-        test_meter.iter_tic()
-    # Log epoch stats
-    test_meter.log_epoch_stats(cur_epoch)
-    test_meter.reset()
 
 
 def train_model():
@@ -154,6 +154,7 @@ def train_model():
     setup_env()
     # Construct the model, loss_fun, and optimizer
     model = setup_model()
+    con_loss_fun = builders.build_supcon_loss_fun()
     loss_fun = builders.build_loss_fun().cuda()
     optimizer = optim.construct_optimizer(model)
     # Load checkpoint or initial weights
@@ -162,15 +163,15 @@ def train_model():
         last_checkpoint = checkpoint.get_last_checkpoint()
         checkpoint_epoch = checkpoint.load_checkpoint(last_checkpoint, model, optimizer)
         logger.info("Loaded checkpoint from: {}".format(last_checkpoint))
-        start_epoch = checkpoint_epoch + 1
+        start_epoch = int(checkpoint_epoch['epoch']) + 1
     elif cfg.TRAIN.WEIGHTS:
         checkpoint.load_checkpoint(cfg.TRAIN.WEIGHTS, model)
         logger.info("Loaded initial weights from: {}".format(cfg.TRAIN.WEIGHTS))
     # Create data loaders and meters
-    train_loader = loader.construct_train_loader()
-    test_loader = loader.construct_test_loader()
+    train_loader = supcon_loader.construct_train_loader()
+    # test_loader = loader.construct_test_loader()
     train_meter = meters.TrainMeter(len(train_loader))
-    test_meter = meters.TestMeter(len(test_loader))
+    # test_meter = meters.TestMeter(len(test_loader))
     # Compute model and loader timings
     #if start_epoch == 0 and cfg.PREC_TIME.NUM_ITER > 0:
         #benchmark.compute_time_full(model, loss_fun, train_loader, test_loader)
@@ -178,7 +179,7 @@ def train_model():
     logger.info("Start epoch: {}".format(start_epoch + 1))
     for cur_epoch in range(start_epoch, cfg.OPTIM.MAX_EPOCH):
         # Train for one epoch
-        train_epoch(train_loader, model, loss_fun, optimizer, train_meter, cur_epoch)
+        train_epoch(train_loader, model, con_loss_fun, loss_fun, optimizer, train_meter, cur_epoch)
         # Compute precise BN stats
         if cfg.BN.USE_PRECISE_STATS:
             net.compute_precise_bn_stats(model, train_loader)
@@ -187,36 +188,8 @@ def train_model():
             checkpoint_file = checkpoint.save_checkpoint(model, optimizer, cur_epoch)
             logger.info("Wrote checkpoint to: {}".format(checkpoint_file))
         # Evaluate the model
-        next_epoch = cur_epoch + 1
-        if next_epoch % cfg.TRAIN.EVAL_PERIOD == 0 or next_epoch == cfg.OPTIM.MAX_EPOCH:
-            test_epoch(test_loader, model, test_meter, cur_epoch)
+        # next_epoch = cur_epoch + 1
+        # if next_epoch % cfg.TRAIN.EVAL_PERIOD == 0 or next_epoch == cfg.OPTIM.MAX_EPOCH:
+        #     test_epoch(test_loader, model, test_meter, cur_epoch)
 
 
-def test_model():
-    """Evaluates a trained model."""
-    # Setup training/testing environment
-    setup_env()
-    # Construct the model
-    model = setup_model()
-    # Load model weights
-    checkpoint.load_checkpoint(cfg.TEST.WEIGHTS, model)
-    logger.info("Loaded model weights from: {}".format(cfg.TEST.WEIGHTS))
-    # Create data loaders and meters
-    test_loader = loader.construct_test_loader()
-    test_meter = meters.TestMeter(len(test_loader))
-    # Evaluate the model
-    test_epoch(test_loader, model, test_meter, 0)
-
-
-def time_model():
-    """Times model and data loader."""
-    # Setup training/testing environment
-    setup_env()
-    # Construct the model and loss_fun
-    model = setup_model()
-    loss_fun = builders.build_loss_fun().cuda()
-    # Create data loaders
-    train_loader = loader.construct_train_loader()
-    test_loader = loader.construct_test_loader()
-    # Compute model and loader timings
-    #benchmark.compute_time_full(model, loss_fun, train_loader, test_loader)

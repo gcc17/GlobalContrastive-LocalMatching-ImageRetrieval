@@ -41,7 +41,7 @@ flags.DEFINE_enum(
     'model_type', 'DELG', ['DELG', 'LoFTR'], 
     'Model to extract features')
 flags.DEFINE_string(
-    'weight_path', 'logs/r50_delg_s512.pyth', 
+    'weight_path', 'output/checkpoints/model_epoch_0200.pyth', 
     'Path of the trained model weight.')
 flags.DEFINE_string(
     'dataset_file_path', f'/home/chen/cv_proj/retrieval_data/gnd_r{dataset_name}.mat',
@@ -90,7 +90,7 @@ def load_checkpoint(checkpoint_file, model, optimizer=None):
     if len(pretrained_dict) == len(state_dict):
         print('All params loaded')
     else:
-        print('construct model total {} keys and pretrin model total {} keys.'.format(len(model_dict), len(state_dict)))
+        print('construct model total {} keys and pretrain model total {} keys.'.format(len(model_dict), len(state_dict)))
         print('{} pretrain keys load successfully.'.format(len(pretrained_dict)))
         not_loaded_keys = [k for k in state_dict.keys() if k not in pretrained_dict.keys()]
         print(('%s, ' * (len(not_loaded_keys) - 1) + '%s') % tuple(not_loaded_keys))
@@ -228,6 +228,10 @@ def local_extract(img, model):
 def main(argv):
     config.load_cfg(FLAGS.config_directory, FLAGS.config_fname)
     cfg.freeze()
+    print(FLAGS.extract_feature_set, FLAGS.weight_path, \
+        FLAGS.dataset_file_path, FLAGS.images_dir, \
+        FLAGS.image_set, FLAGS.output_features_dir)
+    # set_trace()
 
     if FLAGS.model_type == 'DELG': 
         model = setup_DELG_model()
@@ -243,15 +247,17 @@ def main(argv):
         image_list = query_list
     else:
         image_list = index_list
+    #image_list = image_list[0:10]
     num_images = len(image_list)
     print("Done! Found %d images" % num_images)
 
     os.makedirs(FLAGS.output_features_dir, exist_ok=True)
-
+    
     for i in range(num_images):
         image_name = image_list[i]
         input_image_fname = os.path.join(FLAGS.images_dir, \
             image_name + _IMAGE_EXTENSION)
+        print(i, image_name)
         
         im = cv2.imread(input_image_fname)
         im = im.astype(np.float32, copy=False)

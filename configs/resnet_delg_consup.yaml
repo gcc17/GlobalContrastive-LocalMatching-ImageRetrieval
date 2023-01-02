@@ -15,7 +15,7 @@ RESNET:
 BN:
   ZERO_INIT_FINAL_GAMMA: True
 OPTIM:
-  BASE_LR: 0.01
+  BASE_LR: 0.001
   LR_POLICY: cos
   STEPS: [0, 30, 60, 90]
   LR_MULT: 0.1
@@ -37,6 +37,7 @@ TRAIN:
   BATCH_SIZE: 32
   IM_SIZE: 224
   EVAL_PERIOD: 100
+  CON_WEIGHT: 0.001
 TEST:
   DATASET: landmark
   SPLIT: val_list.txt

@@ -6,3 +6,5 @@ __pycache__
 *.pyth
 datasets/data/landmark
 output/
+output_finetune/
+loftr_tools/weights

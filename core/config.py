@@ -256,6 +256,8 @@ _C.OPTIM.WARMUP_FACTOR = 0.1
 # Gradually warm up the OPTIM.BASE_LR over this number of epochs
 _C.OPTIM.WARMUP_EPOCHS = 5
 
+# Temperature for supervised contrastive learning loss
+_C.OPTIM.TEMPERATURE = 0.07
 
 # ------------------------------------------------------------------------------------ #
 # Training options
@@ -283,6 +285,7 @@ _C.TRAIN.AUTO_RESUME = False
 
 # Weights to start training from
 _C.TRAIN.WEIGHTS = ""
+_C.TRAIN.CON_WEIGHT = 0.001
 
 
 # ------------------------------------------------------------------------------------ #

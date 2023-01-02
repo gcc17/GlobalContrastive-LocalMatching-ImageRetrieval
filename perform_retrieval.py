@@ -39,22 +39,22 @@ FLAGS = flags.FLAGS
 
 dataset_name = 'oxford5k'
 flags.DEFINE_string(
-    'dataset_file_path', f'/home/mockbuild/Computer_Vision/retrieval_data/gnd_r{dataset_name}.mat',
+    'dataset_file_path', f'/home/chen/cv_proj/retrieval_data/gnd_r{dataset_name}.mat',
     'Dataset file for Revisited Oxford or Paris dataset, in .mat format.')
 flags.DEFINE_string(
-    'images_dir', f'/home/mockbuild/Computer_Vision/{dataset_name}',
+    'images_dir', f'/home/chen/cv_proj/retrieval_data/{dataset_name}_images',
     'Directory where dataset images are located, all in .jpg format.')
 flags.DEFINE_string(
-    'query_global_path', f'output/features/{dataset_name}/query_global.npy',
+    'query_global_path', f'output/features_20/{dataset_name}/query_global.npy',
     'Global features of query images')
 flags.DEFINE_string(
-    'index_global_path', f'output/features/{dataset_name}/index_global.npy',
+    'index_global_path', f'output/features_20/{dataset_name}/index_global.npy',
     'Global features of index images')
 flags.DEFINE_string(
-    'query_local_path', f'output/features/{dataset_name}/query_local.pickle',
+    'query_local_path', f'output/features_20/{dataset_name}/query_local.pickle',
     'Local features of query images')
 flags.DEFINE_string(
-    'index_local_path', f'output/features/{dataset_name}/index_local.pickle',
+    'index_local_path', f'output/features_20/{dataset_name}/index_local.pickle',
     'Local features of index images')
 flags.DEFINE_string(
     'match_vis_directory', f'output/matches/{dataset_name}',
@@ -95,7 +95,7 @@ def rerankGV_mulprocess_loftr(query_list, index_list, ground_truth, ranks_before
         query_index_localfeatures.append((query_idx, feat_dict))
     gc.collect()
     
-    ## mulprocess
+    # mulprocess
     # with futures.ProcessPoolExecutor(max_workers=2) as executor:
     #     executor_dict = {executor.submit(localRank_loftr, \
     #         tuple_local_features, query_list, index_list, ground_truth, ranks_before_gv): \
@@ -104,11 +104,11 @@ def rerankGV_mulprocess_loftr(query_list, index_list, ground_truth, ranks_before
     # for future in futures.as_completed(executor_dict):
     #     query_idx, inliers_numrerank = future.result()
     #     ranks_after_gv[:NUM_RERANK, query_idx] = ranks_before_gv[np.argsort(-1 * inliers_numrerank), query_idx] #-1
-    ## single process
+    # single process
     for tuple_local_features in query_index_localfeatures:
         query_idx, inliers_numrerank = localRank_loftr(tuple_local_features, query_list, index_list, ground_truth, ranks_before_gv)
         ranks_after_gv[:NUM_RERANK, query_idx] = ranks_before_gv[np.argsort(-1 * inliers_numrerank), query_idx]
-    #set_trace()
+    # set_trace()
     return ranks_after_gv
 
 
@@ -134,18 +134,18 @@ def rerankGV_mulprocess(query_list, index_list, ground_truth, ranks_before_gv):
     del index_local_features
     gc.collect()
     ## mulprocess
-    # with futures.ProcessPoolExecutor(max_workers=24) as executor:
-    #     executor_dict = {executor.submit(localRank, \
-    #         tuple_local_features, query_list, index_list, ground_truth, ranks_before_gv): \
-    #         tuple_local_features for tuple_local_features in query_index_localfeatures}
+    with futures.ProcessPoolExecutor(max_workers=24) as executor:
+        executor_dict = {executor.submit(localRank, \
+            tuple_local_features, query_list, index_list, ground_truth, ranks_before_gv): \
+            tuple_local_features for tuple_local_features in query_index_localfeatures}
 
-    # for future in futures.as_completed(executor_dict):
-    #     query_idx, inliers_numrerank = future.result()
-    #     ranks_after_gv[:NUM_RERANK, query_idx] = ranks_before_gv[np.argsort(-1 * inliers_numrerank), query_idx] #-1
+    for future in futures.as_completed(executor_dict):
+        query_idx, inliers_numrerank = future.result()
+        ranks_after_gv[:NUM_RERANK, query_idx] = ranks_before_gv[np.argsort(-1 * inliers_numrerank), query_idx] #-1
     ## single process
-    for tuple_local_features in query_index_localfeatures:
-        query_idx, inliers_numrerank = localRank(tuple_local_features, query_list, index_list, ground_truth, ranks_before_gv)
-        ranks_after_gv[:NUM_RERANK, query_idx] = ranks_before_gv[np.argsort(-1 * inliers_numrerank), query_idx]
+    # for tuple_local_features in query_index_localfeatures:
+    #     query_idx, inliers_numrerank = localRank(tuple_local_features, query_list, index_list, ground_truth, ranks_before_gv)
+    #     ranks_after_gv[:NUM_RERANK, query_idx] = ranks_before_gv[np.argsort(-1 * inliers_numrerank), query_idx]
     #set_trace()
     return ranks_after_gv
 

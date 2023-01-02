@@ -70,7 +70,7 @@ def save_checkpoint(model, optimizer, epoch):
     torch.save(checkpoint, checkpoint_file)
     return checkpoint_file
 
-
+from ipdb import set_trace
 def load_checkpoint(checkpoint_file, model, optimizer=None):
     """Loads the checkpoint from the given file."""
     err_str = "Checkpoint '{}' not found"
@@ -85,8 +85,9 @@ def load_checkpoint(checkpoint_file, model, optimizer=None):
     ms = model.module if cfg.NUM_GPUS > 1 else model
     model_dict = ms.state_dict()
     
-    state_dict = {'globalmodel.'+k : v for k, v in state_dict.items()}
+    # state_dict = {'globalmodel.'+k : v for k, v in state_dict.items()}
     pretrained_dict = {k: v for k, v in state_dict.items() if k in model_dict and model_dict[k].size() == v.size()}
+    # set_trace()
     if len(pretrained_dict) == len(state_dict):
         print('All params loaded')
     else:
