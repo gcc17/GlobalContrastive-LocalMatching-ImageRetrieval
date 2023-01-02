@@ -7,7 +7,6 @@ parameterized
 setuptools
 simplejson
 yacs
-torch
 einops
 yacs
 kornia
